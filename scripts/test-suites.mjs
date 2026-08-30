@@ -53,6 +53,7 @@ export const SUITES = {
         files: [
           'tests/ci-test-plan.test.mjs',
           'tests/cli-args.test.mjs',
+          'tests/cli-axi.test.mjs',
           'tests/concept-seed.test.mjs',
           'tests/comp-diff.test.mjs',
           'tests/build-phase.test.mjs',

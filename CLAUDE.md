@@ -222,6 +222,8 @@ npx impeccable skills install                    # install skills
 npx impeccable --help                            # show help
 ```
 
+The agent-facing surface (home view, help, usage errors) follows the AXI spec: `cli/bin/surface.mjs` is the command registry, `cli/lib/toon.mjs` the shared TOON emitter, and usage errors exit 2 with structured stdout. `skills/impeccable-cli/SKILL.md` is generated from that registry; after changing it run `npm run skill:gen` (the `skill:check` script and `tests/cli-axi.test.mjs` fail when it drifts). Verify surface changes with `axi-axi validate "node cli/bin/cli.js" --dir . --strict`.
+
 The browser detector (`cli/engine/detect-antipatterns-browser.js`) is generated from the main engine. After changing `cli/engine/detect-antipatterns.mjs`, rebuild it:
 
 ```bash

@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir, homedir } from 'node:os';
 import { unzipSync } from 'fflate';
 import { getHookConsent, setHookConsent } from '../../lib/impeccable-config.mjs';
+import { UsageError } from '../../lib/toon.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const API_BASE = 'https://impeccable.style';
@@ -2352,9 +2353,13 @@ export {
   downloadFile,
   expectedHookDests,
   extractZip,
+  findImpeccableProviders,
+  findProjectRoot,
   formatInstallDetectionLines,
+  getSkillsVersion,
   hermesGlobalHome,
   HOME_SKILLS_DIR_OVERRIDES,
+  isHomeDir,
   linkProviderSkills,
   mergeHookManifests,
   migrateUnprefixImpeccable,
@@ -2378,8 +2383,9 @@ export async function run(args) {
   } else if (sub === 'check') {
     await check();
   } else {
-    console.error(`Unknown skills command: ${sub}`);
-    console.error(`Run 'impeccable --help' for available commands.`);
-    process.exit(1);
+    throw new UsageError(
+      `unknown skills command: ${sub}`,
+      "valid skills commands: help, install, link, update, check (also available without the 'skills' prefix)",
+    );
   }
 }

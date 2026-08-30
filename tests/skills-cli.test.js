@@ -789,10 +789,10 @@ describe('skills install/update: local universal bundle e2e', () => {
   test('root help advertises top-level skills commands', () => {
     const output = run('--help');
 
-    expect(output).toContain('install                          Install impeccable skills');
-    expect(output).toContain('update                           Update skills to the latest version');
-    expect(output).toContain('impeccable skills <command>       Legacy namespace; still supported.');
-    expect(output).not.toContain('skills install                   Install impeccable skills');
+    expect(output).toContain('install,Install impeccable skills into your project or global harness');
+    expect(output).toContain('update,Update installed skills to the latest version');
+    expect(output).toContain('the legacy `impeccable skills <command>` namespace is still supported');
+    expect(output).not.toContain('skills install,');
   });
 
   test('top-level install aliases the legacy skills install command', () => {
@@ -840,11 +840,12 @@ describe('skills install/update: local universal bundle e2e', () => {
       error = e;
     }
 
+    // Usage errors are structured stdout with exit 2 (AXI errors-exits).
     expect(error).toBeDefined();
-    expect(error.status).toBe(1);
-    const stderr = String(error.stderr);
-    expect(stderr).toContain("Type /impeccable init in your AI coding agent's chat");
-    expect(stderr).not.toContain('Unknown command');
+    expect(error.status).toBe(2);
+    const stdout = String(error.stdout);
+    expect(stdout).toContain("type /impeccable init in your AI coding agent's chat");
+    expect(stdout).not.toContain('unknown command');
 
     rmSync(tmp, { recursive: true, force: true });
   }, 15000);

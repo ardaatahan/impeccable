@@ -4,52 +4,58 @@
  * Impeccable CLI
  *
  * Usage:
+ *   npx impeccable                    Home view: install state, ignores, next steps
  *   npx impeccable detect [file-or-dir-or-url...]
  *   npx impeccable ignores <list|add-file|add-value|remove-...>
- *   npx impeccable help|install|update
+ *   npx impeccable help|install|link|update|check
  *   npx impeccable --help
+ *
+ * The agent-facing surface (home view, help, structured usage errors) follows
+ * the AXI spec (axi/1.0-2026-07): TOON on stdout, exit 0 success / 1 error /
+ * 2 usage error, and every command answers --help. See cli/bin/surface.mjs.
  */
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { isKnownDetectFlag } from '../engine/cli/flags.mjs';
+import { UsageError, printUsageError } from '../lib/toon.mjs';
+import { assertKnownFlags, getCliCommand, printCommandHelp, printHome, printRootHelp } from './surface.mjs';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_COMMANDS = new Set(['help', 'install', 'link', 'update', 'check']);
 
 // Is this a detect target (the `npx impeccable src/` shorthand) or a mistyped
-// command? Flags, URLs, path-shaped args, and real files/dirs (e.g. an
-// extension-less `Dockerfile`) are targets; anything else is an unknown command.
+// command? URLs, path-shaped args, and real files/dirs (e.g. an extension-less
+// `Dockerfile`) are targets; anything else is an unknown command. Flags route
+// through the detect-flag whitelist before reaching this.
 function looksLikeDetectTarget(arg) {
-  const isFlag = arg.startsWith('-');
   const isUrl = /^https?:\/\//i.test(arg);
   const isPathShaped = arg.includes('/') || arg.includes('\\') || arg.includes('.');
   const isExistingPath = existsSync(resolve(arg));
-  return isFlag || isUrl || isPathShaped || isExistingPath;
+  return isUrl || isPathShaped || isExistingPath;
+}
+
+async function runDetect(detectArgs) {
+  process.argv = [process.argv[0], process.argv[1], ...detectArgs];
+  const { detectCli } = await import('../engine/cli/main.mjs');
+  await detectCli();
 }
 
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
 
-  if (!command || command === '--help' || command === '-h') {
-    console.log(`Usage: impeccable <command> [options]
+  // Content first (AXI principle 8): the bare invocation shows live state,
+  // usage lives behind --help.
+  if (!command) {
+    await printHome(process.argv[1]);
+    process.exit(0);
+  }
 
-Commands:
-  detect [file-or-dir-or-url...]   Scan for UI anti-patterns and design quality issues
-  ignores                          Manage detector ignore rules, files, and values
-  help                             List all available skills and commands
-  install                          Install impeccable skills into your project or global harness
-  link                             Symlink skills from a local checkout or submodule
-  update                           Update skills to the latest version
-  check                            Check if skill updates are available
-
-Options:
-  --help       Show this help message
-  --version    Show version number
-
-Compatibility:
-  impeccable skills <command>       Legacy namespace; still supported.`);
+  if (command === '--help' || command === '-h') {
+    printRootHelp();
     process.exit(0);
   }
 
@@ -60,34 +66,54 @@ Compatibility:
   }
 
   if (command === 'detect') {
-    process.argv = [process.argv[0], process.argv[1], ...args.slice(1)];
-    const { detectCli } = await import('../engine/detect-antipatterns.mjs');
-    await detectCli();
+    await runDetect(args.slice(1));
   } else if (command === 'ignores' || command === 'ignore') {
     const { run } = await import('./commands/ignores.mjs');
     await run(args.slice(1));
-  } else if (command === 'skills') {
+  } else if (command === 'skills' || SKILL_COMMANDS.has(command)) {
+    // The legacy `skills <command>` namespace resolves to the same top-level
+    // commands; `impeccable skills` alone lists commands like `impeccable help`.
+    const name = command === 'skills' ? (args[1] ?? 'help') : command;
+    const rest = command === 'skills' ? args.slice(2) : args.slice(1);
+    if (name === '--help' || name === '-h') {
+      printRootHelp();
+      process.exit(0);
+    }
+    if (getCliCommand(name) && (rest.includes('--help') || rest.includes('-h'))) {
+      printCommandHelp(name);
+      process.exit(0);
+    }
+    assertKnownFlags(name, rest);
     const { run } = await import('./commands/skills.mjs');
-    await run(args.slice(1));
-  } else if (SKILL_COMMANDS.has(command)) {
-    const { run } = await import('./commands/skills.mjs');
-    await run(args);
+    await run([name, ...rest]);
+  } else if (command.startsWith('-')) {
+    // Leading detect flags keep the `npx impeccable --json src/` shorthand;
+    // anything else is an unknown flag and fails fast with the valid set.
+    if (!isKnownDetectFlag(command)) {
+      throw new UsageError(
+        `unknown flag ${command}`,
+        'valid flags: --help, --version; detect flags such as --json or --scope apply when scanning, e.g. impeccable --json src/',
+      );
+    }
+    await runDetect(args);
   } else if (looksLikeDetectTarget(command)) {
     // Default: treat as detect arguments (allow `npx impeccable src/` shorthand)
-    process.argv = [process.argv[0], process.argv[1], ...args];
-    const { detectCli } = await import('../engine/detect-antipatterns.mjs');
-    await detectCli();
+    await runDetect(args);
   } else if (command === 'init') {
     // The follow-up mistake from issue #472: `/impeccable init` belongs in an AI
     // coding agent's chat, and a user who typed it into their shell is likely to
     // retry it here as `npx impeccable init`.
-    console.error(`"init" is not a CLI command. Type /impeccable init in your AI coding agent's chat (Claude Code, Cursor, Codex, ...), not in this terminal.`);
-    process.exit(1);
+    throw new UsageError(
+      '"init" is not a CLI command',
+      "type /impeccable init in your AI coding agent's chat (Claude Code, Cursor, Codex, ...), not in this terminal",
+    );
   } else {
     // An unknown bareword: a mistyped command (or an old cached version run
     // against newer docs). Fail loudly instead of silently statting it as a path.
-    console.error(`Unknown command: "${command}"\n\nTo see a list of supported commands, run:\n  impeccable --help`);
-    process.exit(1);
+    throw new UsageError(
+      `unknown command "${command}"`,
+      'valid commands: detect, ignores, install, link, update, check, help',
+    );
   }
 }
 
@@ -95,6 +121,12 @@ main().catch(error => {
   if (error?.code === 'IMPECCABLE_PROMPT_ABORT') {
     console.log('\nAborted.');
     process.exit(130);
+  }
+
+  // Usage errors are agent-consumed output: structured stdout, exit 2.
+  if (error?.code === 'IMPECCABLE_USAGE') {
+    printUsageError(error);
+    process.exit(2);
   }
 
   console.error(error?.message || error);

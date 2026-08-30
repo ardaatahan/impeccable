@@ -9,6 +9,7 @@ import {
   writeDetectionConfig,
   extractFindingIgnoreValue,
 } from '../../lib/impeccable-config.mjs';
+import { UsageError } from '../../lib/toon.mjs';
 
 const ACTION_ALIASES = new Map([
   ['status', 'list'],
@@ -114,7 +115,10 @@ function parseValueArgs(args, { allowUnscopedWildcard = false } = {}) {
     } else if (arg.startsWith('--files=')) {
       files.push(requireGlob(arg.slice('--files='.length), '--files'));
     } else if (arg.startsWith('--')) {
-      throw new Error(`Unknown add-value flag: ${arg}`);
+      throw new UsageError(
+        `unknown flag ${arg} for 'impeccable ignores add-value'`,
+        "valid flags for 'impeccable ignores add-value': --file, --reason, --shared, --local",
+      );
     } else {
       positionals.push(arg);
     }
@@ -198,7 +202,10 @@ function parseRuleArgs(args) {
     } else if (arg.startsWith('--reason=')) {
       // Accepted for symmetry with add-value; ignoreRules stores ids only.
     } else if (arg.startsWith('--')) {
-      throw new Error(`Unknown add-rule flag: ${arg}`);
+      throw new UsageError(
+        `unknown flag ${arg} for 'impeccable ignores add-rule'`,
+        "valid flags for 'impeccable ignores add-rule': --all-values, --reason, --shared, --local",
+      );
     } else {
       positionals.push(arg);
     }
@@ -337,7 +344,10 @@ export async function run(args = [], opts = {}) {
   }
   const action = ACTION_ALIASES.get(String(actionArg).toLowerCase());
   if (!action) {
-    throw new Error(`Unknown ignores action: ${actionArg}. Run "impeccable ignores --help".`);
+    throw new UsageError(
+      `unknown ignores action: ${actionArg}`,
+      "valid actions for 'impeccable ignores': list, add-rule, add-file, add-value, remove-rule, remove-file, remove-value, clear (flags: --shared, --local, --all)",
+    );
   }
   const rest = args.slice(1);
   let out;

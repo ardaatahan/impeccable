@@ -2837,22 +2837,23 @@ colors:
       expect(typeIds).toContain('design-system-font-size');
       expect(typeIds.some((id) => id === 'design-system-color')).toBe(false);
 
+      // Usage errors are structured stdout with exit 2 (AXI errors-exits).
       const badScope = runIn(dir, '--scope', 'bogus', 'index.css');
-      expect(badScope.code).toBe(1);
-      expect(badScope.stderr).toContain('Valid scopes:');
+      expect(badScope.code).toBe(2);
+      expect(badScope.stdout).toContain('valid scopes:');
 
       // A bare --scope must fail instead of silently scanning unscoped.
       const missingTrailing = runIn(dir, 'index.css', '--scope');
-      expect(missingTrailing.code).toBe(1);
-      expect(missingTrailing.stderr).toContain('--scope requires a value');
+      expect(missingTrailing.code).toBe(2);
+      expect(missingTrailing.stdout).toContain('--scope requires a value');
 
       const missingBeforeFlag = runIn(dir, '--scope', '--json', 'index.css');
-      expect(missingBeforeFlag.code).toBe(1);
-      expect(missingBeforeFlag.stderr).toContain('--scope requires a value');
+      expect(missingBeforeFlag.code).toBe(2);
+      expect(missingBeforeFlag.stdout).toContain('--scope requires a value');
 
       const emptyInline = runIn(dir, '--scope=', 'index.css');
-      expect(emptyInline.code).toBe(1);
-      expect(emptyInline.stderr).toContain('--scope requires a value');
+      expect(emptyInline.code).toBe(2);
+      expect(emptyInline.stdout).toContain('--scope requires a value');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

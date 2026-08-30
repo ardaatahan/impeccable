@@ -20,6 +20,7 @@ const DETECTOR_BUNDLE_DIR = 'cli/engine';
 // detector fails at import time with "Cannot find module .../lib/impeccable-config.mjs".
 const DETECTOR_EXTERNAL_DEPS = [
   { src: 'cli/lib/impeccable-config.mjs', dest: 'lib/impeccable-config.mjs' },
+  { src: 'cli/lib/toon.mjs', dest: 'lib/toon.mjs' },
 ];
 
 // Walk the harness-dir skill tree and return any per-project script

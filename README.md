@@ -410,6 +410,17 @@ For a waiver that should travel with one file instead of the repo config, add an
 
 Full detector docs: [impeccable.style/docs/detector](https://impeccable.style/docs/detector).
 
+### Agent-ergonomic surface (AXI)
+
+The CLI follows the AXI agent experience spec (axi/1.0-2026-07), so an AI agent can drive it without reading these docs first:
+
+- **Content-first home view.** Bare `npx impeccable` prints live state as structured TOON: which harnesses hold a skill install (and at which version), the detector ignore counts for the project, and a `help[]` block of next commands. Usage lives behind `--help`.
+- **Consistent help.** `impeccable --help` and every subcommand's `--help` answer with flags, defaults, and runnable examples, scoped to that command.
+- **Structured errors and exit codes.** Usage errors (unknown flag, unknown command, missing value) print `error:` and `suggestion:` lines on stdout with the valid set inline, and exit 2. Runtime failures exit 1. Success and no-ops exit 0. `detect` additionally keeps its long-standing exit 2 when findings are reported, so CI behavior is unchanged.
+- **Generated SKILL.md.** `skills/impeccable-cli/SKILL.md` is generated from the same command registry as the home view (`npm run skill:gen`), and `npm run skill:check` fails when it drifts.
+
+The whole surface validates clean: `axi-axi validate "node cli/bin/cli.js" --dir . --strict`.
+
 ## Supported Tools
 
 - [Cursor](https://cursor.com)

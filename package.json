@@ -63,6 +63,8 @@
     "test:live-e2e-agent": "node scripts/run-tests.mjs live-e2e-agent",
     "test:skill-behavior": "node scripts/run-tests.mjs skill-behavior",
     "test:live-svelte-adapter-deepseek": "node scripts/run-tests.mjs live-svelte-adapter-deepseek",
+    "skill:gen": "node scripts/generate-cli-skill.mjs",
+    "skill:check": "node scripts/generate-cli-skill.mjs --check",
     "smoke:hooks": "node scripts/smoke-provider-hooks.mjs",
     "bench:detector": "node scripts/benchmark-detector.mjs",
     "bench:detector:browser": "node scripts/benchmark-detector.mjs --browser",

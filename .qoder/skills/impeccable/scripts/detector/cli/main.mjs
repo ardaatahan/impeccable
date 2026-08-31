@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadDesignSystemForTarget } from '../design-system.mjs';
+import { DETECT_FLAG_SUMMARY, isKnownDetectFlag } from './flags.mjs';
+import { UsageError, printUsageError } from '../../lib/toon.mjs';
 import { RULE_SCOPES, filterByScopes } from '../registry/antipatterns.mjs';
 import { createBrowserDetector, detectUrl } from '../engines/browser/detect-url.mjs';
 import { detectHtml } from '../engines/static-html/detect-html.mjs';
@@ -206,6 +208,19 @@ async function detectCli() {
   const quietMode = args.includes('--quiet');
   const helpMode = args.includes('--help');
   const noAdvisory = args.includes('--no-advisory');
+  // Help wins over everything else and never triggers a scan.
+  if (helpMode) { printUsage(); process.exit(0); }
+  // Validate flags before any config read or scan: an unknown flag used to
+  // fall through as a scan target and silently scan the working directory.
+  // Usage errors are structured stdout, exit 2 (AXI principle 6).
+  const unknownFlags = args.filter(a => a.startsWith('-') && a !== '-' && !isKnownDetectFlag(a));
+  if (unknownFlags.length > 0) {
+    printUsageError(new UsageError(
+      `unknown flag ${unknownFlags[0]} for 'impeccable detect'`,
+      `valid flags for 'impeccable detect': ${DETECT_FLAG_SUMMARY}`,
+    ));
+    process.exit(2);
+  }
   // --fast (regex-only) is deprecated: since the jsdom removal, the static
   // HTML/CSS analysis is fast and covers every rule, so the regex-only path
   // only loses coverage for no real speed win. Accept the flag for back-compat
@@ -235,10 +250,11 @@ async function detectCli() {
     // A bare `--scope` would otherwise fall out of `targets` and scan unscoped;
     // fail loudly so a mistyped pre-scan never runs the wrong rule set.
     if (parsed.length === 0) {
-      process.stderr.write(
-        `Error: --scope requires a value. Valid scopes: ${[...RULE_SCOPES].join(', ')}\n`,
-      );
-      process.exit(1);
+      printUsageError(new UsageError(
+        '--scope requires a value',
+        `valid scopes: ${[...RULE_SCOPES].join(', ')}`,
+      ));
+      process.exit(2);
     }
     scopes.push(...parsed);
     args.splice(i, inline ? 1 : 2);
@@ -251,8 +267,11 @@ async function detectCli() {
     const value = inline ? args[i].slice('--viewport='.length) : args[i + 1];
     const match = /^(\d{2,5})x(\d{2,5})$/i.exec(value || '');
     if (!match) {
-      process.stderr.write('Error: --viewport requires a WxH value, e.g. --viewport 390x844\n');
-      process.exit(1);
+      printUsageError(new UsageError(
+        '--viewport requires a WxH value',
+        'pass width x height, e.g. --viewport 390x844',
+      ));
+      process.exit(2);
     }
     viewport = { width: Number(match[1]), height: Number(match[2]) };
     args.splice(i, inline ? 1 : 2);
@@ -260,10 +279,11 @@ async function detectCli() {
   }
   const unknownScopes = scopes.filter(s => !RULE_SCOPES.has(s));
   if (unknownScopes.length > 0) {
-    process.stderr.write(
-      `Error: unknown --scope value(s): ${unknownScopes.join(', ')}. Valid scopes: ${[...RULE_SCOPES].join(', ')}\n`,
-    );
-    process.exit(1);
+    printUsageError(new UsageError(
+      `unknown --scope value(s): ${unknownScopes.join(', ')}`,
+      `valid scopes: ${[...RULE_SCOPES].join(', ')}`,
+    ));
+    process.exit(2);
   }
   const designSystemEnabled = configEnabled && !args.includes('--no-design-system') && detectionConfig.designSystem?.enabled !== false;
   // Inline `impeccable-disable*` waivers are part of the scanned file, so they
@@ -284,8 +304,6 @@ async function detectCli() {
     return designSystem ? { ...baseScanOptions, designSystem } : baseScanOptions;
   };
   const targets = args.filter(a => !a.startsWith('--'));
-
-  if (helpMode) { printUsage(); process.exit(0); }
 
   let allFindings = [];
 

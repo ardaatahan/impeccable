@@ -1,0 +1,172 @@
+name: Upstream Sync
+
+# Keeps this fork's main current with pbakaus/impeccable without ever pushing
+# to main directly. Every sync lands as a reviewable PR (clean case) or a
+# tracked issue (conflict case); a human always makes the final call.
+#
+# Merge, not rebase: `git merge upstream/main` is used to bring upstream in.
+# A rebase would rewrite this fork's commit history (and any commits already
+# reviewed on a prior sync/upstream PR) every time upstream advances, which
+# breaks incremental review and force-pushes a branch a maintainer may be
+# mid-review on. A merge commit keeps this fork's own history stable, keeps
+# upstream's original commit hashes intact for traceability, and lets the
+# same sync/upstream branch be fast-forwarded/updated run over run.
+
+on:
+  schedule:
+    # Fixed off-peak UTC hour, clear of the existing nightly CI (07:00 UTC)
+    # and PR Sheriff (15:17 UTC) schedules.
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/pbakaus/impeccable.git
+  SYNC_BRANCH: sync/upstream
+  CONFLICT_MARKER: "<!-- impeccable-upstream-sync:conflict -->"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch upstream main
+
+      - name: Check for new upstream commits
+        id: range
+        run: |
+          set -euo pipefail
+          count="$(git rev-list --count main..upstream/main)"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" = "0" ]; then
+            echo "No new upstream commits; nothing to do."
+          else
+            echo "$count new upstream commit(s) to sync."
+            git log --oneline main..upstream/main
+          fi
+
+      - name: Attempt merge
+        id: merge
+        if: steps.range.outputs.count != '0'
+        run: |
+          set -euo pipefail
+          git checkout -B "$SYNC_BRANCH" main
+
+          if git merge upstream/main --no-edit -m "Merge upstream/main into $SYNC_BRANCH"; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort || true
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --- Clean path: push the sync branch and open/update a PR against main. ---
+
+      - name: Push sync branch
+        if: steps.range.outputs.count != '0' && steps.merge.outputs.conflict == 'false'
+        run: git push origin "$SYNC_BRANCH" --force-with-lease
+
+      - name: Open or update sync PR
+        if: steps.range.outputs.count != '0' && steps.merge.outputs.conflict == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          title="Sync upstream/main into main"
+          body_file="$(mktemp)"
+          {
+            echo "Automated sync of \`pbakaus/impeccable\`'s \`main\` into this fork, opened by the Upstream Sync workflow."
+            echo
+            echo "Upstream commits pulled in:"
+            echo
+            git log --pretty="format:- %h %s (%an)" main..upstream/main
+            echo
+            echo
+            echo "Merged via \`git merge upstream/main\` onto a fresh \`$SYNC_BRANCH\` off \`main\`, so this fork's own history and the AXI CLI layer stay untouched. Review the diff before merging."
+          } > "$body_file"
+
+          existing="$(gh pr list --repo "$repo" --head "$SYNC_BRANCH" --base main --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --repo "$repo" --title "$title" --body-file "$body_file"
+            echo "Updated existing PR #$existing."
+          else
+            gh pr create --repo "$repo" --base main --head "$SYNC_BRANCH" --title "$title" --body-file "$body_file"
+          fi
+
+          # A prior run's conflict issue no longer applies once a clean sync lands.
+          open_issue="$(gh issue list --repo "$repo" --search "$CONFLICT_MARKER in:body" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$open_issue" ]; then
+            gh issue comment "$open_issue" --repo "$repo" --body "Resolved: a later sync run merged cleanly. See the sync PR above."
+            gh issue close "$open_issue" --repo "$repo"
+          fi
+
+      # --- Conflict path: no push, no dangling branch, just a tracked issue. ---
+
+      - name: File or update conflict issue
+        if: steps.range.outputs.count != '0' && steps.merge.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          upstream_head="$(git rev-parse --short upstream/main)"
+          fork_head="$(git rev-parse --short main)"
+          title="Upstream sync conflict: $fork_head..upstream/$upstream_head"
+
+          # Redo the merge attempt (still on the throwaway branch created
+          # above) purely to list the conflicting paths; nothing here is
+          # pushed, and the branch is discarded at the end of the job.
+          conflicting_files="$(git merge upstream/main --no-commit --no-ff 2>/dev/null; git diff --name-only --diff-filter=U || true)"
+          git merge --abort || true
+          git checkout main
+          git branch -D "$SYNC_BRANCH" || true
+
+          body_file="$(mktemp)"
+          {
+            echo "$CONFLICT_MARKER"
+            echo
+            echo "Automated upstream sync from \`pbakaus/impeccable\` hit merge conflicts and was not pushed anywhere."
+            echo
+            echo "Commit range: \`main\` ($fork_head) .. \`upstream/main\` ($upstream_head)"
+            echo
+            echo "Conflicting files:"
+            echo
+            if [ -n "$conflicting_files" ]; then
+              echo "$conflicting_files" | while IFS= read -r f; do
+                printf -- "- \`%s\`\n" "$f"
+              done
+            else
+              echo "- (unable to determine; re-run \`git merge upstream/main\` locally to inspect)"
+            fi
+            echo
+            echo "Resolve manually: add the \`upstream\` remote, merge \`upstream/main\` into a branch off \`main\`, fix the conflicts, and open a PR."
+          } > "$body_file"
+
+          existing="$(gh issue list --repo "$repo" --search "$CONFLICT_MARKER in:body" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$repo" --title "$title" --body-file "$body_file"
+            gh issue comment "$existing" --repo "$repo" --body "Conflict persists as of this run ($fork_head..$upstream_head)."
+            echo "Updated existing conflict issue #$existing."
+          else
+            gh issue create --repo "$repo" --title "$title" --body-file "$body_file"
+          fi
